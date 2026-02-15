@@ -1,0 +1,13 @@
+# Env and local secrets
+.env
+secrets/*
+!secrets/README.md
+
+# Local outputs
+backups/
+tmp/
+*.log
+
+# OS/editor noise
+.DS_Store
+.vscode/settings.json
