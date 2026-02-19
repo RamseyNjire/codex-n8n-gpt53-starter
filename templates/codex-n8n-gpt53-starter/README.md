@@ -1,52 +1,48 @@
-# Codex + n8n Automation Starter (GPT-5.3)
+# n8n Project Starter (System Template)
 
-This template is for building and versioning n8n automations with Codex in a local project.
+Use this template for any n8n automation system that has multiple workflows, shared data contracts, operational monitoring, and ongoing n8n↔repo synchronization.
 
-## What This Includes
-- Clean project structure for `docs`, `workflows`, `scripts`, `secrets`, and `skills`
-- Git + GitHub setup checklist
-- Google Cloud service account setup notes for Drive access
-- Episode run-of-show so you can record setup from start to finish
+## Core principles
+1. Sync-first: keep repo JSON in lockstep with live n8n workflows.
+2. PR-first: no direct `main` pushes; use short-lived review branches.
+3. Guardrails-first: run pre-push checks (scope + secret scan + API sanity).
+4. Docs-with-code: update docs in the same PR as behavior changes.
 
-## Folder Layout
-```text
-codex-n8n-gpt53-starter/
-├── AGENTS.md
-├── .env.example
-├── .gitignore
-├── docs/
-│   ├── episode-run-of-show.md
-│   ├── github-setup.md
-│   └── google-drive-service-account.md
-├── scripts/
-├── secrets/
-├── skills/
-└── workflows/
-    ├── active/
-    └── archive/
-```
-
-## Quick Start
-1. Copy this folder to a new project name.
-2. Initialize git and first commit:
+## Quick start
+1. Copy this folder into a new repo.
+2. Copy `.env.example` to `.env` and fill local values.
+3. Define workflow allowlist in `scripts/workflow-allowlist.txt`.
+4. Install hooks:
    ```bash
-   git init
-   git add .
-   git commit -m "chore: initialize codex+n8n starter"
+   ./scripts/install-git-hooks.sh
    ```
-3. Copy environment template:
+5. Pull/sync workflows:
    ```bash
-   cp .env.example .env
+   ./scripts/sync-project-workflows.sh
    ```
-4. Fill `.env` values for your n8n/API setup.
-5. Open this folder in Codex and VS Code.
-6. Follow docs:
-   - `docs/github-setup.md`
-   - `docs/google-drive-service-account.md`
-   - `docs/episode-run-of-show.md`
+6. Run checks before push:
+   ```bash
+   ./scripts/prepush-check.sh
+   ```
 
-## Conventions
-- Keep active production workflows in `workflows/active/`.
-- Move deprecated/old exports to `workflows/archive/`.
-- Never commit raw secret files or private keys.
-- Keep episode notes and architecture decisions in `docs/`.
+## Folder layout
+- `docs/`: system-level docs and operating standards.
+- `workflows/active/`: current exported workflow JSON files (git source of truth).
+- `workflows/archive/`: historical workflow JSON files.
+- `scripts/`: sync, validation, and automation support scripts.
+- `secrets/`: local-only sensitive material (gitignored).
+- `.githooks/`: repo-managed git hooks.
+
+## Minimum maintainability standard
+- Every workflow documented in `docs/WORKFLOW_INVENTORY.md`.
+- Every schedule documented in `docs/SYSTEM_OVERVIEW.md` + runbook.
+- Data contracts documented in `docs/DATA_CONTRACTS.md`.
+- Monitoring documented and tested (`docs/SYNC_MONITORING.md`).
+- Release checklist followed (`docs/RELEASE_CHECKLIST.md`).
+- Security checklist reviewed (`docs/SECURITY.md`).
+
+## Suggested branch workflow
+- Branch names: `codex/<short-topic>`
+- Commit in logical units.
+- Open PR, review, then merge.
+- After merge: re-sync from live n8n if UI edits happened during review.

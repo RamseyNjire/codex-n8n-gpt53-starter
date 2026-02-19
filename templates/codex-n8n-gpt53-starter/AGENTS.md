@@ -1,23 +1,26 @@
-# AGENTS.md
+# AGENTS
 
-This file defines how Codex should operate inside this repository.
+Guidelines for any coding agent (Codex, Claude Code, etc.) working on this repo.
 
-## Objectives
-- Help build, document, and maintain n8n automation workflows.
-- Keep changes reviewable, testable, and easy to roll back.
+## Working model
+- PR-first: create branch `codex/<topic>` (or equivalent), no direct `main` pushes.
+- Sync-first: treat n8n as mutable runtime and git as audited mirror.
+- Docs-with-code: behavior changes require doc updates in same PR.
 
-## Workflow Rules
-- Prefer small commits with clear messages.
-- Export updated workflows to `workflows/active/` after any n8n change.
-- Never commit secrets or private key material.
-- Ask before running destructive commands.
+## Required workflow when making changes
+1. Pull latest allowlisted workflow JSONs (`./scripts/sync-project-workflows.sh`).
+2. Make scoped changes.
+3. Run checks (`./scripts/prepush-check.sh`).
+4. Update docs (`README`, inventory/runbook/contracts/changelog as needed).
+5. Push branch + open PR.
 
-## Project Conventions
-- Branches should use `codex/<topic>`.
-- Docs updates belong in `docs/`.
-- Automation JSON files are source-controlled artifacts.
+## Security rules
+- Never commit `.env` or real secrets.
+- Keep real secrets only in `secrets/` (gitignored).
+- Do not broaden workflow scope beyond project allowlist.
 
-## Definition of Done
-- Relevant workflow JSON exported and committed.
-- Docs updated if behavior changed.
-- Manual verification notes captured in commit or PR description.
+## Documentation minimum
+- `docs/WORKFLOW_INVENTORY.md`: workflow list + IDs + schedules.
+- `docs/RUNBOOK.md`: daily checks and rerun/incident procedures.
+- `docs/SYNC_MONITORING.md`: sync reporting and alert path.
+- `docs/CHANGELOG.md`: concise operationally relevant entries.
