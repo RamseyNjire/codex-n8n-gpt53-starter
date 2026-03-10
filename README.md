@@ -25,6 +25,13 @@ Use this template for any n8n automation system that has multiple workflows, sha
    ./scripts/prepush-check.sh
    ```
 
+## Prerequisites
+- `bash`
+- `curl`
+- `git`
+- `jq`
+- `rg` (`ripgrep`)
+
 ## Folder layout
 - `docs/`: system-level docs and operating standards.
 - `workflows/active/`: current exported workflow JSON files (git source of truth).
@@ -46,3 +53,8 @@ Use this template for any n8n automation system that has multiple workflows, sha
 - Commit in logical units.
 - Open PR, review, then merge.
 - After merge: re-sync from live n8n if UI edits happened during review.
+
+## Sync behavior
+- `scripts/sync-project-workflows.sh` exports every allowlisted workflow into `workflows/active/`.
+- Stale workflow exports are removed when they no longer match the current allowlist + live workflow names.
+- `scripts/prepush-check.sh` verifies that every exported workflow JSON maps to an allowlisted workflow ID.

@@ -4,11 +4,11 @@ This starter includes generic guardrails for n8n project maintenance.
 
 ## Included scripts
 - `scripts/sync-project-workflows.sh`
-  - Pulls workflow JSON by ID allowlist into `workflows/active/`.
+  - Pulls workflow JSON by ID allowlist into `workflows/active/` and removes stale exports.
 - `scripts/prepush-check.sh`
-  - API sanity check + workflow scope check + secret pattern scan.
+  - API sanity check + allowlist/export validation + secret pattern scan.
 - `scripts/run-sync.sh`
-  - Wrapper to run sync + checks and post success/failure to monitoring webhook.
+  - Wrapper to run sync + checks and post one success/failure report to the monitoring webhook.
 - `scripts/install-git-hooks.sh`
   - Sets `core.hooksPath=.githooks`.
 
