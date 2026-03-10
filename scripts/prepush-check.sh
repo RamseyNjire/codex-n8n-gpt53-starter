@@ -13,15 +13,53 @@ api_get "/api/v1/workflows?limit=1" >/dev/null
 echo "OK"
 
 echo "[2/3] workflow scope check..."
-if [[ -d workflows/active ]]; then
-  while IFS= read -r f; do
-    [[ -z "$f" ]] && continue
-    if [[ "$f" != workflows/active/* ]]; then
-      echo "ERROR: workflow file out of scope: $f"
-      exit 1
-    fi
-  done < <(find workflows/active -maxdepth 1 -type f | sed 's#^\./##')
+ALLOWLIST_FILE="${SCRIPT_DIR}/workflow-allowlist.txt"
+if [[ ! -f "${ALLOWLIST_FILE}" ]]; then
+  echo "ERROR: missing allowlist: ${ALLOWLIST_FILE}"
+  exit 1
 fi
+
+declare -A allowlisted_ids=()
+while IFS= read -r id; do
+  [[ -z "${id}" ]] && continue
+  allowlisted_ids["${id}"]=1
+done < <(grep -vE '^\s*#|^\s*$' "${ALLOWLIST_FILE}")
+
+if [[ "${#allowlisted_ids[@]}" -eq 0 ]]; then
+  echo "ERROR: no workflow IDs found in ${ALLOWLIST_FILE}"
+  exit 1
+fi
+
+declare -A seen_ids=()
+shopt -s nullglob
+for workflow_file in workflows/active/*.json; do
+  workflow_id="$(jq -r '.id // empty' "${workflow_file}")"
+  if [[ -z "${workflow_id}" ]]; then
+    echo "ERROR: workflow file missing .id: ${workflow_file}"
+    exit 1
+  fi
+
+  if [[ -z "${allowlisted_ids[${workflow_id}]:-}" ]]; then
+    echo "ERROR: workflow file is not allowlisted: ${workflow_file} (id ${workflow_id})"
+    exit 1
+  fi
+
+  if [[ -n "${seen_ids[${workflow_id}]:-}" ]]; then
+    echo "ERROR: duplicate workflow export for id ${workflow_id}: ${workflow_file}"
+    exit 1
+  fi
+
+  seen_ids["${workflow_id}"]="${workflow_file}"
+done
+shopt -u nullglob
+
+for workflow_id in "${!allowlisted_ids[@]}"; do
+  if [[ -z "${seen_ids[${workflow_id}]:-}" ]]; then
+    echo "ERROR: allowlisted workflow has no export in workflows/active: ${workflow_id}"
+    exit 1
+  fi
+done
+
 echo "OK"
 
 echo "[3/3] secret pattern scan..."

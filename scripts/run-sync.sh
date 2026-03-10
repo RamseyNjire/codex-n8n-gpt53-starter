@@ -14,8 +14,14 @@ START_EPOCH="$(date +%s)"
 STATUS="success"
 FAILED_STEP=""
 ERROR_SUMMARY=""
+REPORTED=0
 
 report() {
+  if [[ "${REPORTED}" -eq 1 ]]; then
+    return
+  fi
+  REPORTED=1
+
   local end_ts duration
   end_ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   duration="$(( $(date +%s) - START_EPOCH ))"
