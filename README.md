@@ -8,6 +8,54 @@ Use this template for any n8n automation system that has multiple workflows, sha
 3. Guardrails-first: run pre-push checks (scope + secret scan + API sanity).
 4. Docs-with-code: update docs in the same PR as behavior changes.
 
+## Start with Discovery (Codex Interview Mode)
+Before building workflows, use Codex to interview stakeholders and produce a defining spec.
+
+Why this matters:
+- Most automation failures come from unclear business rules, missing edge cases, and unknown system constraints.
+- A better first step is "Interview -> Spec -> Roadmap -> Build", not "nodes first".
+
+Expected discovery outputs:
+- `docs/PROJECT_DEFINE.md`:
+  - business problem and success metrics
+  - current workflow and bottlenecks
+  - future-state workflow and escalation boundaries
+  - assumptions, unknowns, and decisions
+- `docs/INTEGRATION_REQUIREMENTS.md`:
+  - required systems, data fields, auth scopes, and data owners
+- `docs/IMPLEMENTATION_ROADMAP.md`:
+  - phased plan (happy path -> risk gates -> ops hardening)
+
+Suggested Codex prompt:
+
+```text
+Act as a solutions architect for an n8n automation project.
+Interview me in short rounds to define the project before any implementation.
+
+Rules:
+1) Ask 5-8 focused questions per round.
+2) Prioritize: business outcome, current process, edge cases, human approvals, data/contracts, and integrations.
+3) After each round, summarize:
+   - Confirmed facts
+   - Assumptions
+   - Open questions
+   - Risks
+4) Recommend required data fields and external connections with rationale.
+5) Produce three docs:
+   - PROJECT_DEFINE.md
+   - INTEGRATION_REQUIREMENTS.md
+   - IMPLEMENTATION_ROADMAP.md
+6) Include confidence level per section and a "missing inputs" checklist.
+7) Do not start building workflows until I approve the define docs.
+```
+
+Discovery completion gate (before build):
+- [ ] Business outcome and KPI target are explicit.
+- [ ] Human-in-the-loop boundaries are defined.
+- [ ] Data contract v1 is drafted (required vs optional fields).
+- [ ] Integration/auth requirements are listed and feasible.
+- [ ] MVP happy path and failure paths are both defined.
+
 ## Quick start
 1. Copy this folder into a new repo.
 2. Copy `.env.example` to `.env` and fill local values.
