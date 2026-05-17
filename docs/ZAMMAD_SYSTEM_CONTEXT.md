@@ -5,6 +5,8 @@ Speakeasy is using Zammad as the in-house ticketing backbone while gradually red
 
 Topspot still handles support intake and multiple internal departments. HIT and SEO are already being moved in-house. The ticketing system is meant to preserve visibility, capture institutional knowledge, and make cross-department routing explicit instead of hidden in private inboxes.
 
+For deeper organizational/adoption context, read `/Users/app/Documents/speakeasy-zammad-poc/docs/architecture/ORGANIZATIONAL-CONTEXT.md`.
+
 ## Core routing model
 1. Requesters are still familiar with `support@speakeasymarketinginc.com`.
 2. Topspot acts as a multi-department vendor lane with a Ticket Master role.
