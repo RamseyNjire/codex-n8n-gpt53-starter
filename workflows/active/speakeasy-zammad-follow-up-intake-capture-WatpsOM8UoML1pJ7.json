@@ -1,0 +1,803 @@
+{
+  "updatedAt": "2026-06-11T00:44:13.440Z",
+  "createdAt": "2026-06-09T12:44:21.365Z",
+  "id": "WatpsOM8UoML1pJ7",
+  "name": "Speakeasy Zammad Follow-Up Intake Capture",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "speakeasy-zammad-follow-up-intake",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "f6d0d0c9-7a37-48f8-8f64-6c3183b45401",
+      "name": "Zammad New Ticket Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        -560,
+        0
+      ],
+      "webhookId": "a253a497-4825-43d2-a35b-ba592fe13941"
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $json.body ?? $json;\nconst ticket = payload.ticket ?? payload.object ?? payload;\nconst webhookArticle = payload.article ?? payload.ticket_article ?? payload.latest_article ?? {};\n\nconst asNumber = (value) => {\n  const parsed = Number(value);\n  return Number.isFinite(parsed) ? parsed : null;\n};\n\nconst firstPresent = (...values) => values.find((value) => value !== undefined && value !== null && value !== \"\") ?? null;\nconst keyList = (value) => value && typeof value === \"object\" ? Object.keys(value).sort() : [];\n\nconst normalized = {\n  received_at: new Date().toISOString(),\n  source: \"zammad_webhook\",\n  workflow_stage: \"article_fetch_pending\",\n  expected_event: \"new_ticket\",\n  scoped_group_ids: [2],\n  ticket: {\n    id: asNumber(firstPresent(ticket.id, payload.ticket_id)),\n    number: firstPresent(ticket.number, payload.ticket_number),\n    group_id: asNumber(firstPresent(ticket.group_id, payload.group_id, ticket.group?.id)),\n    title: firstPresent(ticket.title, webhookArticle.subject, payload.title),\n    customer_id: asNumber(firstPresent(ticket.customer_id, payload.customer_id)),\n    organization_id: asNumber(firstPresent(ticket.organization_id, payload.organization_id)),\n    created_at: firstPresent(ticket.created_at, payload.created_at)\n  },\n  webhook_article: {\n    id: asNumber(firstPresent(webhookArticle.id, payload.article_id)),\n    from: firstPresent(webhookArticle.from, webhookArticle.sender, payload.from),\n    subject: firstPresent(webhookArticle.subject, ticket.title, payload.subject),\n    sender_id: asNumber(firstPresent(webhookArticle.sender_id, payload.article_sender_id)),\n    type_id: asNumber(firstPresent(webhookArticle.type_id, payload.article_type_id)),\n    internal: Boolean(webhookArticle.internal)\n  },\n  payload_shape: {\n    top_level_keys: keyList(payload),\n    ticket_keys: keyList(ticket),\n    article_keys: keyList(webhookArticle)\n  }\n};\n\nnormalized.is_hit_scope = normalized.ticket.group_id === 2;\nnormalized.missing_fields = [];\nif (!normalized.ticket.id) normalized.missing_fields.push(\"ticket.id\");\nif (!normalized.ticket.group_id) normalized.missing_fields.push(\"ticket.group_id\");\nif (!normalized.ticket.title) normalized.missing_fields.push(\"ticket.title\");\nnormalized.ready_to_fetch_articles = normalized.is_hit_scope && normalized.missing_fields.length === 0;\n\nreturn { json: normalized };"
+      },
+      "id": "0b562ca6-aac1-450e-8dd4-31e5ec76b81d",
+      "name": "Normalize Ticket Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ \"https://workflows.speakeasymarketinginc.com/api/v1/ticket_articles/by_ticket/\" + $json.ticket.id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "b70b2c92-b8f2-4249-8e99-ea284f259cb9",
+      "name": "Fetch Ticket Articles",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        80,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IwTGHb1OvDGiin2P",
+          "name": "Speakeasy Workflows (Zammad) API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const context = $(\"Normalize Ticket Context\").first().json;\nconst inputItems = $input.all();\n\nconst asNumber = (value) => {\n  const parsed = Number(value);\n  return Number.isFinite(parsed) ? parsed : null;\n};\n\nconst compactText = (value, limit = 2000) => String(value ?? \"\")\n  .replace(/<[^>]+>/g, \" \")\n  .replace(/&nbsp;/gi, \" \")\n  .replace(/&amp;/gi, \"&\")\n  .replace(/\\s+/g, \" \")\n  .trim()\n  .slice(0, limit);\n\nconst flattenArticles = (items) => {\n  const articles = [];\n  for (const item of items) {\n    const raw = item.json;\n    if (Array.isArray(raw)) {\n      articles.push(...raw);\n    } else if (Array.isArray(raw?.data)) {\n      articles.push(...raw.data);\n    } else if (Array.isArray(raw?.body)) {\n      articles.push(...raw.body);\n    } else if (raw && typeof raw === \"object\") {\n      articles.push(raw);\n    }\n  }\n  return articles;\n};\n\nconst articles = flattenArticles(inputItems)\n  .filter((article) => article && typeof article === \"object\")\n  .sort((a, b) => {\n    const aTime = Date.parse(a.created_at ?? \"\") || 0;\n    const bTime = Date.parse(b.created_at ?? \"\") || 0;\n    if (aTime !== bTime) return aTime - bTime;\n    return (asNumber(a.id) ?? 0) - (asNumber(b.id) ?? 0);\n  });\n\nconst isEmail = (article) => String(article.type ?? \"\").toLowerCase() === \"email\" || asNumber(article.type_id) === 1;\nconst lowerText = (value) => String(value ?? \"\").toLowerCase();\nconst looksLikeSystemNotification = (article) => {\n  const from = lowerText(article.from);\n  const subject = lowerText(article.subject);\n  const body = lowerText(article.body);\n  const sender = lowerText(article.sender);\n\n  return sender === \"system\"\n    || from.includes(\"hitteam@speakeasymarketinginc.com\")\n    || subject.startsWith(\"new hit intake ticket\")\n    || body.includes(\"a new hit ticket was created and is ready for triage\");\n};\n\nconst candidateArticles = articles.filter((article) => {\n  return isEmail(article)\n    && article.internal !== true\n    && !looksLikeSystemNotification(article);\n});\n\nconst selected = candidateArticles[0] ?? articles.find((article) => isEmail(article) && article.internal !== true) ?? articles[0] ?? {};\n\nconst normalized = {\n  ...context,\n  workflow_stage: \"intake_capture\",\n  article_fetch: {\n    attempted: true,\n    returned_count: articles.length,\n    selected_article_id: asNumber(selected.id),\n    selection_strategy: candidateArticles.length > 0 ? \"first_non_system_external_email\" : \"fallback_first_available_article\"\n  },\n  article: {\n    id: asNumber(selected.id),\n    ticket_id: asNumber(selected.ticket_id),\n    from: selected.from ?? null,\n    to: selected.to ?? null,\n    subject: selected.subject ?? context.ticket.title ?? null,\n    sender: selected.sender ?? null,\n    sender_id: asNumber(selected.sender_id),\n    type: selected.type ?? null,\n    type_id: asNumber(selected.type_id),\n    internal: Boolean(selected.internal),\n    created_at: selected.created_at ?? null,\n    body_excerpt: compactText(selected.body)\n  }\n};\n\nnormalized.missing_fields = [];\nif (!normalized.ticket.id) normalized.missing_fields.push(\"ticket.id\");\nif (!normalized.ticket.group_id) normalized.missing_fields.push(\"ticket.group_id\");\nif (!normalized.ticket.title) normalized.missing_fields.push(\"ticket.title\");\nif (!normalized.article.from) normalized.missing_fields.push(\"article.from\");\nif (!normalized.article.body_excerpt) normalized.missing_fields.push(\"article.body\");\nnormalized.valid_for_scoring = normalized.is_hit_scope && normalized.missing_fields.length === 0;\n\nreturn { json: normalized };"
+      },
+      "id": "dccbb147-a1be-48dc-9cc3-264a607a117f",
+      "name": "Select Source Article",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://workflows.speakeasymarketinginc.com/api/v1/tickets/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "group_id:2"
+            },
+            {
+              "name": "limit",
+              "value": "100"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IwTGHb1OvDGiin2P",
+          "name": "Speakeasy Workflows (Zammad) API"
+        }
+      },
+      "id": "b41f73cf-b3bb-466c-978f-ce8a724f1700",
+      "name": "Search HIT Candidate Tickets",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const context = $(\"Select Source Article\").first().json;\nconst inputItems = $input.all();\n\nconst asNumber = (value) => {\n  const parsed = Number(value);\n  return Number.isFinite(parsed) ? parsed : null;\n};\n\nconst flattenTickets = (items) => {\n  const tickets = [];\n  for (const item of items) {\n    const raw = item.json;\n    if (Array.isArray(raw)) {\n      tickets.push(...raw);\n    } else if (Array.isArray(raw?.data)) {\n      tickets.push(...raw.data);\n    } else if (Array.isArray(raw?.body)) {\n      tickets.push(...raw.body);\n    } else if (raw && typeof raw === \"object\" && raw.id) {\n      tickets.push(raw);\n    }\n  }\n  return tickets;\n};\n\nconst normalizeSubject = (value) => {\n  let text = String(value ?? \"\").toLowerCase();\n  text = text.replace(/\\[[^\\]]*(ticket|case|id|#)\\s*#?\\d+[^\\]]*\\]/gi, \" \");\n  text = text.replace(/\\b(ticket|case)\\s*#?\\d+\\b/gi, \" \");\n  let changed = true;\n  while (changed) {\n    const next = text.replace(/^\\s*(re|fw|fwd)\\s*[:\\-]\\s*/i, \"\");\n    changed = next !== text;\n    text = next;\n  }\n  return text\n    .replace(/&amp;/g, \"and\")\n    .replace(/[^a-z0-9]+/g, \" \")\n    .replace(/\\s+/g, \" \")\n    .trim();\n};\n\nconst tokenSet = (text) => new Set(normalizeSubject(text).split(\" \").filter((token) => token.length > 2));\nconst jaccard = (a, b) => {\n  const left = tokenSet(a);\n  const right = tokenSet(b);\n  if (left.size === 0 || right.size === 0) return 0;\n  const intersection = [...left].filter((token) => right.has(token)).length;\n  const union = new Set([...left, ...right]).size;\n  return intersection / union;\n};\n\nconst genericSubjects = new Set([\n  \"question\",\n  \"update\",\n  \"follow up\",\n  \"following up\",\n  \"hello\",\n  \"hi\",\n  \"website\",\n  \"test\",\n  \"checking in\",\n  \"quick question\"\n]);\n\nconst newSubject = normalizeSubject(context.ticket.title || context.article.subject);\nconst subjectQuality = newSubject.length >= 12 && !genericSubjects.has(newSubject);\nconst newTicketId = asNumber(context.ticket.id);\nconst newCustomerId = asNumber(context.ticket.customer_id);\nconst newOrgId = asNumber(context.ticket.organization_id);\nconst allowedStateIds = new Set([1, 2, 3, 6]);\nconst now = Date.now();\n\nconst scoreTicket = (candidate) => {\n  const candidateId = asNumber(candidate.id);\n  const candidateSubject = normalizeSubject(candidate.title);\n  const stateId = asNumber(candidate.state_id);\n  const groupId = asNumber(candidate.group_id);\n  const updatedAt = Date.parse(candidate.updated_at || candidate.created_at || \"\");\n  const ageDays = Number.isFinite(updatedAt) && updatedAt > 0 ? Math.max(0, (now - updatedAt) / 86400000) : null;\n  const sameCustomer = newCustomerId !== null && asNumber(candidate.customer_id) === newCustomerId;\n  const sameOrg = newOrgId !== null && newOrgId !== 0 && asNumber(candidate.organization_id) === newOrgId;\n  const subjectExact = subjectQuality && candidateSubject === newSubject;\n  const subjectSimilarity = subjectQuality ? jaccard(newSubject, candidateSubject) : 0;\n  const openish = allowedStateIds.has(stateId);\n  const sameGroup = groupId === context.ticket.group_id;\n  const notSelf = candidateId !== newTicketId;\n  const recent60 = ageDays !== null && ageDays <= 60;\n\n  const reasons = [];\n  const blocking_flags = [];\n  let score = 0;\n\n  if (sameGroup) { score += 10; reasons.push(\"same_group\"); } else blocking_flags.push(\"different_group\");\n  if (openish) { score += 10; reasons.push(\"openish_state\"); } else blocking_flags.push(\"closed_or_merged_state\");\n  if (sameCustomer) { score += 40; reasons.push(\"same_customer\"); }\n  if (sameOrg) { score += 15; reasons.push(\"same_organization\"); }\n  if (subjectExact) { score += 35; reasons.push(\"exact_normalized_subject\"); }\n  else if (subjectSimilarity >= 0.75) { score += 25; reasons.push(\"high_subject_similarity\"); }\n  else if (subjectSimilarity >= 0.45) { score += 12; reasons.push(\"partial_subject_similarity\"); }\n  if (ageDays !== null && ageDays <= 7) { score += 15; reasons.push(\"updated_within_7_days\"); }\n  else if (ageDays !== null && ageDays <= 30) { score += 10; reasons.push(\"updated_within_30_days\"); }\n  else if (recent60) { score += 5; reasons.push(\"updated_within_60_days\"); }\n  else blocking_flags.push(\"outside_60_day_window\");\n  if (!notSelf) blocking_flags.push(\"self_ticket\");\n  if (!subjectQuality) blocking_flags.push(\"generic_or_short_subject\");\n\n  let match_tier = \"no_match\";\n  if (notSelf && sameGroup && openish && recent60 && sameCustomer && subjectExact && subjectQuality) {\n    match_tier = \"exact_composite_ticket_level\";\n  } else if (notSelf && sameGroup && openish && recent60 && (sameCustomer || sameOrg) && subjectSimilarity >= 0.75 && subjectQuality) {\n    match_tier = \"strong_composite_ticket_level\";\n  } else if (notSelf && sameGroup && openish && recent60 && score >= 45 && (subjectSimilarity >= 0.45 || sameOrg)) {\n    match_tier = \"fuzzy_ticket_level\";\n  }\n\n  return {\n    id: candidateId,\n    number: candidate.number ?? null,\n    title: candidate.title ?? null,\n    group_id: groupId,\n    state_id: stateId,\n    customer_id: asNumber(candidate.customer_id),\n    organization_id: asNumber(candidate.organization_id),\n    created_at: candidate.created_at ?? null,\n    updated_at: candidate.updated_at ?? null,\n    normalized_subject: candidateSubject,\n    subject_similarity: Number(subjectSimilarity.toFixed(3)),\n    age_days: ageDays === null ? null : Number(ageDays.toFixed(1)),\n    deterministic_score: score,\n    match_tier,\n    reasons,\n    blocking_flags\n  };\n};\n\nconst allCandidates = flattenTickets(inputItems);\nconst createdTime = (candidate) => {\n  const parsed = Date.parse(candidate.created_at || \"\");\n  return Number.isFinite(parsed) && parsed > 0 ? parsed : Number.MAX_SAFE_INTEGER;\n};\n\nconst scored = allCandidates\n  .map(scoreTicket)\n  .filter((candidate) => !candidate.blocking_flags.includes(\"self_ticket\"))\n  .sort((a, b) => {\n    const tierRank = {\n      exact_composite_ticket_level: 4,\n      strong_composite_ticket_level: 3,\n      fuzzy_ticket_level: 2,\n      no_match: 1\n    };\n    const rankDiff = (tierRank[b.match_tier] || 0) - (tierRank[a.match_tier] || 0);\n    if (rankDiff !== 0) return rankDiff;\n    if (b.deterministic_score !== a.deterministic_score) return b.deterministic_score - a.deterministic_score;\n    if (b.subject_similarity !== a.subject_similarity) return b.subject_similarity - a.subject_similarity;\n    const createdDiff = createdTime(a) - createdTime(b);\n    if (createdDiff !== 0) return createdDiff;\n    return (a.id ?? Number.MAX_SAFE_INTEGER) - (b.id ?? Number.MAX_SAFE_INTEGER);\n  });\n\nconst viable = scored.filter((candidate) => candidate.match_tier !== \"no_match\");\nconst exactComposite = viable.filter((candidate) => candidate.match_tier === \"exact_composite_ticket_level\");\nconst topCandidates = viable.slice(0, 5);\nconst highConfidenceCandidate = exactComposite.length === 1 ? exactComposite[0] : null;\n\nconst candidateLookup = {\n  strategy: \"deterministic_ticket_level_v1\",\n  query: \"group_id:2\",\n  searched_count: allCandidates.length,\n  scored_count: scored.length,\n  viable_count: viable.length,\n  top_count: topCandidates.length,\n  new_normalized_subject: newSubject,\n  subject_quality: subjectQuality,\n  hard_gate_unique_match: Boolean(highConfidenceCandidate),\n  recommendation: highConfidenceCandidate ? \"high_confidence_review\" : (topCandidates.length > 0 ? \"candidate_review\" : \"no_candidate\"),\n  top_candidate_id: highConfidenceCandidate?.id ?? topCandidates[0]?.id ?? null,\n  top_candidate_number: highConfidenceCandidate?.number ?? topCandidates[0]?.number ?? null,\n  top_candidates: topCandidates\n};\n\nreturn { json: { ...context, candidate_lookup: candidateLookup } };"
+      },
+      "id": "c4d8ed0b-1fbd-4c0c-a9a8-11f7bc0c78e3",
+      "name": "Score Deterministic Candidates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $json;\nconst lookup = data.candidate_lookup || {};\nconst top = lookup.top_candidates || [];\nconst shouldWrite = [\"high_confidence_review\", \"candidate_review\"].includes(lookup.recommendation) && top.length > 0;\n\nconst escapeHtml = (value) => String(value ?? \"\")\n  .replace(/&/g, \"&amp;\")\n  .replace(/</g, \"&lt;\")\n  .replace(/>/g, \"&gt;\")\n  .replace(/\"/g, \"&quot;\");\n\nconst candidateLines = top.slice(0, 5).map((candidate, index) => {\n  const reasons = (candidate.reasons || []).join(\", \") || \"none\";\n  const flags = (candidate.blocking_flags || []).length ? `; flags: ${(candidate.blocking_flags || []).join(\", \")}` : \"\";\n  return `<li><strong>${index + 1}. #${escapeHtml(candidate.number)}</strong> - ${escapeHtml(candidate.title)}<br/>Tier: ${escapeHtml(candidate.match_tier)}; score: ${escapeHtml(candidate.deterministic_score)}; subject similarity: ${escapeHtml(candidate.subject_similarity)}<br/>Reasons: ${escapeHtml(reasons)}${escapeHtml(flags)}</li>`;\n}).join(\"\\n\");\n\nconst recommendationLabel = lookup.recommendation === \"high_confidence_review\"\n  ? \"High-confidence possible follow-up\"\n  : \"Possible follow-up candidates\";\n\nconst body = `<p><strong>${escapeHtml(recommendationLabel)}</strong></p>\n<p>n8n reviewed this new HIT ticket for possible marker-less follow-up recovery.</p>\n<ul>\n  <li>New ticket: #${escapeHtml(data.ticket?.number || data.ticket?.id)} - ${escapeHtml(data.ticket?.title)}</li>\n  <li>Recommendation: ${escapeHtml(lookup.recommendation)}</li>\n  <li>Hard-gate unique match: ${escapeHtml(Boolean(lookup.hard_gate_unique_match))}</li>\n  <li>Source article: ${escapeHtml(data.article?.id)} from ${escapeHtml(data.article?.from)}</li>\n  <li>Normalized subject: ${escapeHtml(lookup.new_normalized_subject)}</li>\n</ul>\n<p><strong>Ranked candidates</strong></p>\n<ol>${candidateLines}</ol>\n<p>No automatic merge or ticket mutation was performed beyond this internal note.</p>`;\n\nreturn {\n  json: {\n    ...data,\n    review_note: {\n      should_write: shouldWrite,\n      attempted: false,\n      written: false,\n      subject: `Possible follow-up detected for #${data.ticket?.number || data.ticket?.id}`,\n      payload: shouldWrite ? {\n        ticket_id: data.ticket.id,\n        subject: `Possible follow-up detected for #${data.ticket?.number || data.ticket?.id}`,\n        body,\n        content_type: \"text/html\",\n        type: \"note\",\n        internal: true,\n        sender: \"Agent\"\n      } : null\n    }\n  }\n};"
+      },
+      "id": "c68b6627-6fd1-42a6-bc1c-52b9c0a1fd32",
+      "name": "Prepare Review Note",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "write-review-note",
+              "leftValue": "={{ $json.review_note.should_write }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c5ce95a1-5ee0-4d8d-aafe-16b3f32f43b6",
+      "name": "Should Write Review Note?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1680,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://workflows.speakeasymarketinginc.com/api/v1/ticket_articles",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.review_note.payload) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IwTGHb1OvDGiin2P",
+          "name": "Speakeasy Workflows (Zammad) API"
+        }
+      },
+      "id": "b85c7a4d-39f2-4ead-90c4-e176ed217870",
+      "name": "Create Review Note",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2000,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const original = $(\"Prepare Review Note\").first().json;\nconst response = $input.first().json;\nconst createdId = response?.id ?? response?.body?.id ?? null;\n\nreturn {\n  json: {\n    ...original,\n    review_note: {\n      ...original.review_note,\n      attempted: true,\n      written: Boolean(createdId),\n      article_id: createdId,\n      response_status: response?.statusCode ?? response?.status ?? null\n    }\n  }\n};"
+      },
+      "id": "b9c21f3e-3e75-450b-890c-53c6b38f02a6",
+      "name": "Attach Review Note Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2320,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { success: true, status: $json.valid_for_scoring ? \"captured_in_scope\" : \"captured_needs_review\", ticket_id: $json.ticket.id, ticket_number: $json.ticket.number, group_id: $json.ticket.group_id, is_hit_scope: $json.is_hit_scope, missing_fields: $json.missing_fields, candidate_recommendation: $json.candidate_lookup.recommendation, top_candidate_number: $json.candidate_lookup.top_candidate_number, top_candidate_count: $json.candidate_lookup.top_count, review_note_written: $json.review_note.written || false, review_note_article_id: $json.review_note.article_id || null } }}",
+        "options": {}
+      },
+      "id": "df9f81ca-6aa7-44d1-9f6f-482a18884e88",
+      "name": "Acknowledge Capture",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        2640,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Zammad New Ticket Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Ticket Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Ticket Context": {
+      "main": [
+        [
+          {
+            "node": "Fetch Ticket Articles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Ticket Articles": {
+      "main": [
+        [
+          {
+            "node": "Select Source Article",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Source Article": {
+      "main": [
+        [
+          {
+            "node": "Search HIT Candidate Tickets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search HIT Candidate Tickets": {
+      "main": [
+        [
+          {
+            "node": "Score Deterministic Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score Deterministic Candidates": {
+      "main": [
+        [
+          {
+            "node": "Prepare Review Note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Review Note": {
+      "main": [
+        [
+          {
+            "node": "Should Write Review Note?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Write Review Note?": {
+      "main": [
+        [
+          {
+            "node": "Create Review Note",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Acknowledge Capture",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Review Note": {
+      "main": [
+        [
+          {
+            "node": "Attach Review Note Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach Review Note Result": {
+      "main": [
+        [
+          {
+            "node": "Acknowledge Capture",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false,
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "saveDataErrorExecution": "all"
+  },
+  "staticData": null,
+  "meta": null,
+  "versionId": "f95df3d0-f126-4807-a004-dde872984e54",
+  "activeVersionId": "f95df3d0-f126-4807-a004-dde872984e54",
+  "versionCounter": 35,
+  "triggerCount": 1,
+  "tags": [],
+  "activeVersion": {
+    "updatedAt": "2026-06-11T00:44:13.444Z",
+    "createdAt": "2026-06-11T00:44:13.444Z",
+    "versionId": "f95df3d0-f126-4807-a004-dde872984e54",
+    "workflowId": "WatpsOM8UoML1pJ7",
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "speakeasy-zammad-follow-up-intake",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "id": "f6d0d0c9-7a37-48f8-8f64-6c3183b45401",
+        "name": "Zammad New Ticket Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 1.1,
+        "position": [
+          -560,
+          0
+        ],
+        "webhookId": "a253a497-4825-43d2-a35b-ba592fe13941"
+      },
+      {
+        "parameters": {
+          "jsCode": "const payload = $json.body ?? $json;\nconst ticket = payload.ticket ?? payload.object ?? payload;\nconst webhookArticle = payload.article ?? payload.ticket_article ?? payload.latest_article ?? {};\n\nconst asNumber = (value) => {\n  const parsed = Number(value);\n  return Number.isFinite(parsed) ? parsed : null;\n};\n\nconst firstPresent = (...values) => values.find((value) => value !== undefined && value !== null && value !== \"\") ?? null;\nconst keyList = (value) => value && typeof value === \"object\" ? Object.keys(value).sort() : [];\n\nconst normalized = {\n  received_at: new Date().toISOString(),\n  source: \"zammad_webhook\",\n  workflow_stage: \"article_fetch_pending\",\n  expected_event: \"new_ticket\",\n  scoped_group_ids: [2],\n  ticket: {\n    id: asNumber(firstPresent(ticket.id, payload.ticket_id)),\n    number: firstPresent(ticket.number, payload.ticket_number),\n    group_id: asNumber(firstPresent(ticket.group_id, payload.group_id, ticket.group?.id)),\n    title: firstPresent(ticket.title, webhookArticle.subject, payload.title),\n    customer_id: asNumber(firstPresent(ticket.customer_id, payload.customer_id)),\n    organization_id: asNumber(firstPresent(ticket.organization_id, payload.organization_id)),\n    created_at: firstPresent(ticket.created_at, payload.created_at)\n  },\n  webhook_article: {\n    id: asNumber(firstPresent(webhookArticle.id, payload.article_id)),\n    from: firstPresent(webhookArticle.from, webhookArticle.sender, payload.from),\n    subject: firstPresent(webhookArticle.subject, ticket.title, payload.subject),\n    sender_id: asNumber(firstPresent(webhookArticle.sender_id, payload.article_sender_id)),\n    type_id: asNumber(firstPresent(webhookArticle.type_id, payload.article_type_id)),\n    internal: Boolean(webhookArticle.internal)\n  },\n  payload_shape: {\n    top_level_keys: keyList(payload),\n    ticket_keys: keyList(ticket),\n    article_keys: keyList(webhookArticle)\n  }\n};\n\nnormalized.is_hit_scope = normalized.ticket.group_id === 2;\nnormalized.missing_fields = [];\nif (!normalized.ticket.id) normalized.missing_fields.push(\"ticket.id\");\nif (!normalized.ticket.group_id) normalized.missing_fields.push(\"ticket.group_id\");\nif (!normalized.ticket.title) normalized.missing_fields.push(\"ticket.title\");\nnormalized.ready_to_fetch_articles = normalized.is_hit_scope && normalized.missing_fields.length === 0;\n\nreturn { json: normalized };"
+        },
+        "id": "0b562ca6-aac1-450e-8dd4-31e5ec76b81d",
+        "name": "Normalize Ticket Context",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -240,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "url": "={{ \"https://workflows.speakeasymarketinginc.com/api/v1/ticket_articles/by_ticket/\" + $json.ticket.id }}",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
+          "options": {
+            "response": {
+              "response": {
+                "neverError": true,
+                "responseFormat": "json"
+              }
+            }
+          }
+        },
+        "id": "b70b2c92-b8f2-4249-8e99-ea284f259cb9",
+        "name": "Fetch Ticket Articles",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          80,
+          0
+        ],
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "IwTGHb1OvDGiin2P",
+            "name": "Speakeasy Workflows (Zammad) API"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const context = $(\"Normalize Ticket Context\").first().json;\nconst inputItems = $input.all();\n\nconst asNumber = (value) => {\n  const parsed = Number(value);\n  return Number.isFinite(parsed) ? parsed : null;\n};\n\nconst compactText = (value, limit = 2000) => String(value ?? \"\")\n  .replace(/<[^>]+>/g, \" \")\n  .replace(/&nbsp;/gi, \" \")\n  .replace(/&amp;/gi, \"&\")\n  .replace(/\\s+/g, \" \")\n  .trim()\n  .slice(0, limit);\n\nconst flattenArticles = (items) => {\n  const articles = [];\n  for (const item of items) {\n    const raw = item.json;\n    if (Array.isArray(raw)) {\n      articles.push(...raw);\n    } else if (Array.isArray(raw?.data)) {\n      articles.push(...raw.data);\n    } else if (Array.isArray(raw?.body)) {\n      articles.push(...raw.body);\n    } else if (raw && typeof raw === \"object\") {\n      articles.push(raw);\n    }\n  }\n  return articles;\n};\n\nconst articles = flattenArticles(inputItems)\n  .filter((article) => article && typeof article === \"object\")\n  .sort((a, b) => {\n    const aTime = Date.parse(a.created_at ?? \"\") || 0;\n    const bTime = Date.parse(b.created_at ?? \"\") || 0;\n    if (aTime !== bTime) return aTime - bTime;\n    return (asNumber(a.id) ?? 0) - (asNumber(b.id) ?? 0);\n  });\n\nconst isEmail = (article) => String(article.type ?? \"\").toLowerCase() === \"email\" || asNumber(article.type_id) === 1;\nconst lowerText = (value) => String(value ?? \"\").toLowerCase();\nconst looksLikeSystemNotification = (article) => {\n  const from = lowerText(article.from);\n  const subject = lowerText(article.subject);\n  const body = lowerText(article.body);\n  const sender = lowerText(article.sender);\n\n  return sender === \"system\"\n    || from.includes(\"hitteam@speakeasymarketinginc.com\")\n    || subject.startsWith(\"new hit intake ticket\")\n    || body.includes(\"a new hit ticket was created and is ready for triage\");\n};\n\nconst candidateArticles = articles.filter((article) => {\n  return isEmail(article)\n    && article.internal !== true\n    && !looksLikeSystemNotification(article);\n});\n\nconst selected = candidateArticles[0] ?? articles.find((article) => isEmail(article) && article.internal !== true) ?? articles[0] ?? {};\n\nconst normalized = {\n  ...context,\n  workflow_stage: \"intake_capture\",\n  article_fetch: {\n    attempted: true,\n    returned_count: articles.length,\n    selected_article_id: asNumber(selected.id),\n    selection_strategy: candidateArticles.length > 0 ? \"first_non_system_external_email\" : \"fallback_first_available_article\"\n  },\n  article: {\n    id: asNumber(selected.id),\n    ticket_id: asNumber(selected.ticket_id),\n    from: selected.from ?? null,\n    to: selected.to ?? null,\n    subject: selected.subject ?? context.ticket.title ?? null,\n    sender: selected.sender ?? null,\n    sender_id: asNumber(selected.sender_id),\n    type: selected.type ?? null,\n    type_id: asNumber(selected.type_id),\n    internal: Boolean(selected.internal),\n    created_at: selected.created_at ?? null,\n    body_excerpt: compactText(selected.body)\n  }\n};\n\nnormalized.missing_fields = [];\nif (!normalized.ticket.id) normalized.missing_fields.push(\"ticket.id\");\nif (!normalized.ticket.group_id) normalized.missing_fields.push(\"ticket.group_id\");\nif (!normalized.ticket.title) normalized.missing_fields.push(\"ticket.title\");\nif (!normalized.article.from) normalized.missing_fields.push(\"article.from\");\nif (!normalized.article.body_excerpt) normalized.missing_fields.push(\"article.body\");\nnormalized.valid_for_scoring = normalized.is_hit_scope && normalized.missing_fields.length === 0;\n\nreturn { json: normalized };"
+        },
+        "id": "dccbb147-a1be-48dc-9cc3-264a607a117f",
+        "name": "Select Source Article",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          400,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "url": "https://workflows.speakeasymarketinginc.com/api/v1/tickets/search",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "query",
+                "value": "group_id:2"
+              },
+              {
+                "name": "limit",
+                "value": "100"
+              }
+            ]
+          },
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Accept",
+                "value": "application/json"
+              }
+            ]
+          },
+          "options": {
+            "response": {
+              "response": {
+                "neverError": true,
+                "responseFormat": "json"
+              }
+            }
+          }
+        },
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "IwTGHb1OvDGiin2P",
+            "name": "Speakeasy Workflows (Zammad) API"
+          }
+        },
+        "id": "b41f73cf-b3bb-466c-978f-ce8a724f1700",
+        "name": "Search HIT Candidate Tickets",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          720,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const context = $(\"Select Source Article\").first().json;\nconst inputItems = $input.all();\n\nconst asNumber = (value) => {\n  const parsed = Number(value);\n  return Number.isFinite(parsed) ? parsed : null;\n};\n\nconst flattenTickets = (items) => {\n  const tickets = [];\n  for (const item of items) {\n    const raw = item.json;\n    if (Array.isArray(raw)) {\n      tickets.push(...raw);\n    } else if (Array.isArray(raw?.data)) {\n      tickets.push(...raw.data);\n    } else if (Array.isArray(raw?.body)) {\n      tickets.push(...raw.body);\n    } else if (raw && typeof raw === \"object\" && raw.id) {\n      tickets.push(raw);\n    }\n  }\n  return tickets;\n};\n\nconst normalizeSubject = (value) => {\n  let text = String(value ?? \"\").toLowerCase();\n  text = text.replace(/\\[[^\\]]*(ticket|case|id|#)\\s*#?\\d+[^\\]]*\\]/gi, \" \");\n  text = text.replace(/\\b(ticket|case)\\s*#?\\d+\\b/gi, \" \");\n  let changed = true;\n  while (changed) {\n    const next = text.replace(/^\\s*(re|fw|fwd)\\s*[:\\-]\\s*/i, \"\");\n    changed = next !== text;\n    text = next;\n  }\n  return text\n    .replace(/&amp;/g, \"and\")\n    .replace(/[^a-z0-9]+/g, \" \")\n    .replace(/\\s+/g, \" \")\n    .trim();\n};\n\nconst tokenSet = (text) => new Set(normalizeSubject(text).split(\" \").filter((token) => token.length > 2));\nconst jaccard = (a, b) => {\n  const left = tokenSet(a);\n  const right = tokenSet(b);\n  if (left.size === 0 || right.size === 0) return 0;\n  const intersection = [...left].filter((token) => right.has(token)).length;\n  const union = new Set([...left, ...right]).size;\n  return intersection / union;\n};\n\nconst genericSubjects = new Set([\n  \"question\",\n  \"update\",\n  \"follow up\",\n  \"following up\",\n  \"hello\",\n  \"hi\",\n  \"website\",\n  \"test\",\n  \"checking in\",\n  \"quick question\"\n]);\n\nconst newSubject = normalizeSubject(context.ticket.title || context.article.subject);\nconst subjectQuality = newSubject.length >= 12 && !genericSubjects.has(newSubject);\nconst newTicketId = asNumber(context.ticket.id);\nconst newCustomerId = asNumber(context.ticket.customer_id);\nconst newOrgId = asNumber(context.ticket.organization_id);\nconst allowedStateIds = new Set([1, 2, 3, 6]);\nconst now = Date.now();\n\nconst scoreTicket = (candidate) => {\n  const candidateId = asNumber(candidate.id);\n  const candidateSubject = normalizeSubject(candidate.title);\n  const stateId = asNumber(candidate.state_id);\n  const groupId = asNumber(candidate.group_id);\n  const updatedAt = Date.parse(candidate.updated_at || candidate.created_at || \"\");\n  const ageDays = Number.isFinite(updatedAt) && updatedAt > 0 ? Math.max(0, (now - updatedAt) / 86400000) : null;\n  const sameCustomer = newCustomerId !== null && asNumber(candidate.customer_id) === newCustomerId;\n  const sameOrg = newOrgId !== null && newOrgId !== 0 && asNumber(candidate.organization_id) === newOrgId;\n  const subjectExact = subjectQuality && candidateSubject === newSubject;\n  const subjectSimilarity = subjectQuality ? jaccard(newSubject, candidateSubject) : 0;\n  const openish = allowedStateIds.has(stateId);\n  const sameGroup = groupId === context.ticket.group_id;\n  const notSelf = candidateId !== newTicketId;\n  const recent60 = ageDays !== null && ageDays <= 60;\n\n  const reasons = [];\n  const blocking_flags = [];\n  let score = 0;\n\n  if (sameGroup) { score += 10; reasons.push(\"same_group\"); } else blocking_flags.push(\"different_group\");\n  if (openish) { score += 10; reasons.push(\"openish_state\"); } else blocking_flags.push(\"closed_or_merged_state\");\n  if (sameCustomer) { score += 40; reasons.push(\"same_customer\"); }\n  if (sameOrg) { score += 15; reasons.push(\"same_organization\"); }\n  if (subjectExact) { score += 35; reasons.push(\"exact_normalized_subject\"); }\n  else if (subjectSimilarity >= 0.75) { score += 25; reasons.push(\"high_subject_similarity\"); }\n  else if (subjectSimilarity >= 0.45) { score += 12; reasons.push(\"partial_subject_similarity\"); }\n  if (ageDays !== null && ageDays <= 7) { score += 15; reasons.push(\"updated_within_7_days\"); }\n  else if (ageDays !== null && ageDays <= 30) { score += 10; reasons.push(\"updated_within_30_days\"); }\n  else if (recent60) { score += 5; reasons.push(\"updated_within_60_days\"); }\n  else blocking_flags.push(\"outside_60_day_window\");\n  if (!notSelf) blocking_flags.push(\"self_ticket\");\n  if (!subjectQuality) blocking_flags.push(\"generic_or_short_subject\");\n\n  let match_tier = \"no_match\";\n  if (notSelf && sameGroup && openish && recent60 && sameCustomer && subjectExact && subjectQuality) {\n    match_tier = \"exact_composite_ticket_level\";\n  } else if (notSelf && sameGroup && openish && recent60 && (sameCustomer || sameOrg) && subjectSimilarity >= 0.75 && subjectQuality) {\n    match_tier = \"strong_composite_ticket_level\";\n  } else if (notSelf && sameGroup && openish && recent60 && score >= 45 && (subjectSimilarity >= 0.45 || sameOrg)) {\n    match_tier = \"fuzzy_ticket_level\";\n  }\n\n  return {\n    id: candidateId,\n    number: candidate.number ?? null,\n    title: candidate.title ?? null,\n    group_id: groupId,\n    state_id: stateId,\n    customer_id: asNumber(candidate.customer_id),\n    organization_id: asNumber(candidate.organization_id),\n    created_at: candidate.created_at ?? null,\n    updated_at: candidate.updated_at ?? null,\n    normalized_subject: candidateSubject,\n    subject_similarity: Number(subjectSimilarity.toFixed(3)),\n    age_days: ageDays === null ? null : Number(ageDays.toFixed(1)),\n    deterministic_score: score,\n    match_tier,\n    reasons,\n    blocking_flags\n  };\n};\n\nconst allCandidates = flattenTickets(inputItems);\nconst createdTime = (candidate) => {\n  const parsed = Date.parse(candidate.created_at || \"\");\n  return Number.isFinite(parsed) && parsed > 0 ? parsed : Number.MAX_SAFE_INTEGER;\n};\n\nconst scored = allCandidates\n  .map(scoreTicket)\n  .filter((candidate) => !candidate.blocking_flags.includes(\"self_ticket\"))\n  .sort((a, b) => {\n    const tierRank = {\n      exact_composite_ticket_level: 4,\n      strong_composite_ticket_level: 3,\n      fuzzy_ticket_level: 2,\n      no_match: 1\n    };\n    const rankDiff = (tierRank[b.match_tier] || 0) - (tierRank[a.match_tier] || 0);\n    if (rankDiff !== 0) return rankDiff;\n    if (b.deterministic_score !== a.deterministic_score) return b.deterministic_score - a.deterministic_score;\n    if (b.subject_similarity !== a.subject_similarity) return b.subject_similarity - a.subject_similarity;\n    const createdDiff = createdTime(a) - createdTime(b);\n    if (createdDiff !== 0) return createdDiff;\n    return (a.id ?? Number.MAX_SAFE_INTEGER) - (b.id ?? Number.MAX_SAFE_INTEGER);\n  });\n\nconst viable = scored.filter((candidate) => candidate.match_tier !== \"no_match\");\nconst exactComposite = viable.filter((candidate) => candidate.match_tier === \"exact_composite_ticket_level\");\nconst topCandidates = viable.slice(0, 5);\nconst highConfidenceCandidate = exactComposite.length === 1 ? exactComposite[0] : null;\n\nconst candidateLookup = {\n  strategy: \"deterministic_ticket_level_v1\",\n  query: \"group_id:2\",\n  searched_count: allCandidates.length,\n  scored_count: scored.length,\n  viable_count: viable.length,\n  top_count: topCandidates.length,\n  new_normalized_subject: newSubject,\n  subject_quality: subjectQuality,\n  hard_gate_unique_match: Boolean(highConfidenceCandidate),\n  recommendation: highConfidenceCandidate ? \"high_confidence_review\" : (topCandidates.length > 0 ? \"candidate_review\" : \"no_candidate\"),\n  top_candidate_id: highConfidenceCandidate?.id ?? topCandidates[0]?.id ?? null,\n  top_candidate_number: highConfidenceCandidate?.number ?? topCandidates[0]?.number ?? null,\n  top_candidates: topCandidates\n};\n\nreturn { json: { ...context, candidate_lookup: candidateLookup } };"
+        },
+        "id": "c4d8ed0b-1fbd-4c0c-a9a8-11f7bc0c78e3",
+        "name": "Score Deterministic Candidates",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1040,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const data = $json;\nconst lookup = data.candidate_lookup || {};\nconst top = lookup.top_candidates || [];\nconst shouldWrite = [\"high_confidence_review\", \"candidate_review\"].includes(lookup.recommendation) && top.length > 0;\n\nconst escapeHtml = (value) => String(value ?? \"\")\n  .replace(/&/g, \"&amp;\")\n  .replace(/</g, \"&lt;\")\n  .replace(/>/g, \"&gt;\")\n  .replace(/\"/g, \"&quot;\");\n\nconst candidateLines = top.slice(0, 5).map((candidate, index) => {\n  const reasons = (candidate.reasons || []).join(\", \") || \"none\";\n  const flags = (candidate.blocking_flags || []).length ? `; flags: ${(candidate.blocking_flags || []).join(\", \")}` : \"\";\n  return `<li><strong>${index + 1}. #${escapeHtml(candidate.number)}</strong> - ${escapeHtml(candidate.title)}<br/>Tier: ${escapeHtml(candidate.match_tier)}; score: ${escapeHtml(candidate.deterministic_score)}; subject similarity: ${escapeHtml(candidate.subject_similarity)}<br/>Reasons: ${escapeHtml(reasons)}${escapeHtml(flags)}</li>`;\n}).join(\"\\n\");\n\nconst recommendationLabel = lookup.recommendation === \"high_confidence_review\"\n  ? \"High-confidence possible follow-up\"\n  : \"Possible follow-up candidates\";\n\nconst body = `<p><strong>${escapeHtml(recommendationLabel)}</strong></p>\n<p>n8n reviewed this new HIT ticket for possible marker-less follow-up recovery.</p>\n<ul>\n  <li>New ticket: #${escapeHtml(data.ticket?.number || data.ticket?.id)} - ${escapeHtml(data.ticket?.title)}</li>\n  <li>Recommendation: ${escapeHtml(lookup.recommendation)}</li>\n  <li>Hard-gate unique match: ${escapeHtml(Boolean(lookup.hard_gate_unique_match))}</li>\n  <li>Source article: ${escapeHtml(data.article?.id)} from ${escapeHtml(data.article?.from)}</li>\n  <li>Normalized subject: ${escapeHtml(lookup.new_normalized_subject)}</li>\n</ul>\n<p><strong>Ranked candidates</strong></p>\n<ol>${candidateLines}</ol>\n<p>No automatic merge or ticket mutation was performed beyond this internal note.</p>`;\n\nreturn {\n  json: {\n    ...data,\n    review_note: {\n      should_write: shouldWrite,\n      attempted: false,\n      written: false,\n      subject: `Possible follow-up detected for #${data.ticket?.number || data.ticket?.id}`,\n      payload: shouldWrite ? {\n        ticket_id: data.ticket.id,\n        subject: `Possible follow-up detected for #${data.ticket?.number || data.ticket?.id}`,\n        body,\n        content_type: \"text/html\",\n        type: \"note\",\n        internal: true,\n        sender: \"Agent\"\n      } : null\n    }\n  }\n};"
+        },
+        "id": "c68b6627-6fd1-42a6-bc1c-52b9c0a1fd32",
+        "name": "Prepare Review Note",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1360,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "write-review-note",
+                "leftValue": "={{ $json.review_note.should_write }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "c5ce95a1-5ee0-4d8d-aafe-16b3f32f43b6",
+        "name": "Should Write Review Note?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          1680,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://workflows.speakeasymarketinginc.com/api/v1/ticket_articles",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Accept",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify($json.review_note.payload) }}",
+          "options": {
+            "response": {
+              "response": {
+                "neverError": true,
+                "responseFormat": "json"
+              }
+            }
+          }
+        },
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "IwTGHb1OvDGiin2P",
+            "name": "Speakeasy Workflows (Zammad) API"
+          }
+        },
+        "id": "b85c7a4d-39f2-4ead-90c4-e176ed217870",
+        "name": "Create Review Note",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          2000,
+          -120
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const original = $(\"Prepare Review Note\").first().json;\nconst response = $input.first().json;\nconst createdId = response?.id ?? response?.body?.id ?? null;\n\nreturn {\n  json: {\n    ...original,\n    review_note: {\n      ...original.review_note,\n      attempted: true,\n      written: Boolean(createdId),\n      article_id: createdId,\n      response_status: response?.statusCode ?? response?.status ?? null\n    }\n  }\n};"
+        },
+        "id": "b9c21f3e-3e75-450b-890c-53c6b38f02a6",
+        "name": "Attach Review Note Result",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2320,
+          -120
+        ]
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ { success: true, status: $json.valid_for_scoring ? \"captured_in_scope\" : \"captured_needs_review\", ticket_id: $json.ticket.id, ticket_number: $json.ticket.number, group_id: $json.ticket.group_id, is_hit_scope: $json.is_hit_scope, missing_fields: $json.missing_fields, candidate_recommendation: $json.candidate_lookup.recommendation, top_candidate_number: $json.candidate_lookup.top_candidate_number, top_candidate_count: $json.candidate_lookup.top_count, review_note_written: $json.review_note.written || false, review_note_article_id: $json.review_note.article_id || null } }}",
+          "options": {}
+        },
+        "id": "df9f81ca-6aa7-44d1-9f6f-482a18884e88",
+        "name": "Acknowledge Capture",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1,
+        "position": [
+          2640,
+          0
+        ]
+      }
+    ],
+    "connections": {
+      "Zammad New Ticket Webhook": {
+        "main": [
+          [
+            {
+              "node": "Normalize Ticket Context",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Normalize Ticket Context": {
+        "main": [
+          [
+            {
+              "node": "Fetch Ticket Articles",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch Ticket Articles": {
+        "main": [
+          [
+            {
+              "node": "Select Source Article",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Select Source Article": {
+        "main": [
+          [
+            {
+              "node": "Search HIT Candidate Tickets",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Search HIT Candidate Tickets": {
+        "main": [
+          [
+            {
+              "node": "Score Deterministic Candidates",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Score Deterministic Candidates": {
+        "main": [
+          [
+            {
+              "node": "Prepare Review Note",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Prepare Review Note": {
+        "main": [
+          [
+            {
+              "node": "Should Write Review Note?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Should Write Review Note?": {
+        "main": [
+          [
+            {
+              "node": "Create Review Note",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Acknowledge Capture",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Create Review Note": {
+        "main": [
+          [
+            {
+              "node": "Attach Review Note Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Attach Review Note Result": {
+        "main": [
+          [
+            {
+              "node": "Acknowledge Capture",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "authors": "Ramsey Njire",
+    "name": null,
+    "description": null,
+    "autosaved": false,
+    "workflowPublishHistory": [
+      {
+        "createdAt": "2026-06-11T00:44:13.597Z",
+        "id": 839,
+        "workflowId": "WatpsOM8UoML1pJ7",
+        "versionId": "f95df3d0-f126-4807-a004-dde872984e54",
+        "event": "deactivated",
+        "userId": "69c70afa-3122-4aa2-9567-0403b56aa745"
+      },
+      {
+        "createdAt": "2026-06-11T00:44:13.667Z",
+        "id": 840,
+        "workflowId": "WatpsOM8UoML1pJ7",
+        "versionId": "f95df3d0-f126-4807-a004-dde872984e54",
+        "event": "activated",
+        "userId": "69c70afa-3122-4aa2-9567-0403b56aa745"
+      }
+    ]
+  }
+}

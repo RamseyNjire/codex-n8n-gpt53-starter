@@ -15,13 +15,17 @@ if [[ ! -f "${ALLOWLIST_FILE}" ]]; then
   exit 1
 fi
 
-mapfile -t IDS < <(grep -vE '^\s*#|^\s*$' "${ALLOWLIST_FILE}")
+IDS=()
+while IFS= read -r id; do
+  IDS+=("${id}")
+done < <(grep -vE '^\s*#|^\s*$' "${ALLOWLIST_FILE}")
 if [[ "${#IDS[@]}" -eq 0 ]]; then
   echo "No workflow IDs found in ${ALLOWLIST_FILE}"
   exit 1
 fi
 
-declare -A expected_files=()
+EXPECTED_FILES="$(mktemp)"
+trap 'rm -f "${EXPECTED_FILES}"' EXIT
 
 for id in "${IDS[@]}"; do
   echo "Syncing workflow ${id} ..."
@@ -32,14 +36,14 @@ for id in "${IDS[@]}"; do
     safe_name="workflow"
   fi
   out_file="${OUT_DIR}/${safe_name}-${id}.json"
-  printf '%s\n' "$json" | jq '.' > "${out_file}"
-  expected_files["$(basename "${out_file}")"]=1
+  printf '%s\n' "$json" | jq 'del(.shared, .pinData)' > "${out_file}"
+  basename "${out_file}" >> "${EXPECTED_FILES}"
   echo "  -> ${out_file}"
 done
 
 while IFS= read -r stale_file; do
   base_name="$(basename "${stale_file}")"
-  if [[ -z "${expected_files[${base_name}]:-}" ]]; then
+  if ! grep -Fxq "${base_name}" "${EXPECTED_FILES}"; then
     echo "Removing stale export ${stale_file}"
     rm -f "${stale_file}"
   fi

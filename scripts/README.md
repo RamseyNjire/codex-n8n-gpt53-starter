@@ -4,7 +4,7 @@ This starter includes generic guardrails for n8n project maintenance.
 
 ## Included scripts
 - `scripts/sync-project-workflows.sh`
-  - Pulls workflow JSON by ID allowlist into `workflows/active/` and removes stale exports.
+  - Pulls workflow JSON by ID allowlist into `workflows/active/`, removes stale exports, and strips n8n `shared`/`pinData` metadata from saved JSON.
 - `scripts/prepush-check.sh`
   - API sanity check + allowlist/export validation + secret pattern scan.
 - `scripts/run-sync.sh`

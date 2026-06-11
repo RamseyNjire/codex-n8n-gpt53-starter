@@ -19,18 +19,20 @@ if [[ ! -f "${ALLOWLIST_FILE}" ]]; then
   exit 1
 fi
 
-declare -A allowlisted_ids=()
+ALLOWLIST_IDS="$(mktemp)"
+SEEN_IDS="$(mktemp)"
+trap 'rm -f "${ALLOWLIST_IDS}" "${SEEN_IDS}"' EXIT
+
 while IFS= read -r id; do
   [[ -z "${id}" ]] && continue
-  allowlisted_ids["${id}"]=1
+  printf '%s\n' "${id}" >> "${ALLOWLIST_IDS}"
 done < <(grep -vE '^\s*#|^\s*$' "${ALLOWLIST_FILE}")
 
-if [[ "${#allowlisted_ids[@]}" -eq 0 ]]; then
+if [[ ! -s "${ALLOWLIST_IDS}" ]]; then
   echo "ERROR: no workflow IDs found in ${ALLOWLIST_FILE}"
   exit 1
 fi
 
-declare -A seen_ids=()
 shopt -s nullglob
 for workflow_file in workflows/active/*.json; do
   workflow_id="$(jq -r '.id // empty' "${workflow_file}")"
@@ -39,26 +41,26 @@ for workflow_file in workflows/active/*.json; do
     exit 1
   fi
 
-  if [[ -z "${allowlisted_ids[${workflow_id}]:-}" ]]; then
+  if ! grep -Fxq "${workflow_id}" "${ALLOWLIST_IDS}"; then
     echo "ERROR: workflow file is not allowlisted: ${workflow_file} (id ${workflow_id})"
     exit 1
   fi
 
-  if [[ -n "${seen_ids[${workflow_id}]:-}" ]]; then
+  if grep -Fxq "${workflow_id}" "${SEEN_IDS}"; then
     echo "ERROR: duplicate workflow export for id ${workflow_id}: ${workflow_file}"
     exit 1
   fi
 
-  seen_ids["${workflow_id}"]="${workflow_file}"
+  printf '%s\n' "${workflow_id}" >> "${SEEN_IDS}"
 done
 shopt -u nullglob
 
-for workflow_id in "${!allowlisted_ids[@]}"; do
-  if [[ -z "${seen_ids[${workflow_id}]:-}" ]]; then
+while IFS= read -r workflow_id; do
+  if ! grep -Fxq "${workflow_id}" "${SEEN_IDS}"; then
     echo "ERROR: allowlisted workflow has no export in workflows/active: ${workflow_id}"
     exit 1
   fi
-done
+done < "${ALLOWLIST_IDS}"
 
 echo "OK"
 
